@@ -1,0 +1,18 @@
+{
+  "name": "tubehub-addon",
+  "version": "1.0.0",
+  "description": "Stremio/Nuvio addon with one browsable catalog per tube site",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check sites.js && node --check allowlist.js && node --check verify.js",
+    "verify": "node verify.js"
+  },
+  "engines": {
+    "node": ">=20.18.1"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0"
+  }
+}

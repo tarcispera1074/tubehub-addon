@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TubeHub — Configure</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+         background: #101014; color: #e7e7ea; line-height: 1.45; }
+  header { padding: 28px 20px 10px; max-width: 860px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -.02em; }
+  .sub { color: #9a9aa6; font-size: 14px; }
+  main { max-width: 860px; margin: 0 auto; padding: 12px 20px 80px; }
+  .card { background: #17171d; border: 1px solid #26262f; border-radius: 12px; padding: 16px 18px; margin: 16px 0; }
+  .card h2 { margin: 0 0 12px; font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: #9a9aa6; }
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  button, .btn { background: #23232c; color: #e7e7ea; border: 1px solid #33333f; border-radius: 8px;
+                 padding: 8px 12px; font-size: 13px; cursor: pointer; }
+  button:hover { background: #2c2c37; }
+  button.primary { background: #2f6df6; border-color: #2f6df6; color: #fff; font-weight: 600; }
+  button.primary:hover { background: #3d7bff; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+  label.site { display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+               background: #1d1d24; border: 1px solid #2a2a34; border-radius: 9px; cursor: pointer; font-size: 14px; }
+  label.site:hover { border-color: #3a3a48; }
+  label.site input { accent-color: #2f6df6; width: 16px; height: 16px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .count { color: #9a9aa6; font-size: 13px; margin-left: auto; }
+  .out { margin-top: 14px; }
+  .out code { display: block; padding: 12px; background: #0c0c10; border: 1px solid #2a2a34;
+              border-radius: 9px; word-break: break-all; font-size: 13px; color: #9ad0ff; }
+  .hint { color: #9a9aa6; font-size: 13px; margin-top: 10px; }
+  .hidden { display: none; }
+  footer { max-width: 860px; margin: 0 auto; padding: 0 20px 40px; color: #6f6f7d; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TubeHub</h1>
+  <div class="sub">Pick the rows you want. You get an install link with your choices baked in.</div>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Presets</h2>
+    <div class="presets">
+      <button data-preset="all">All sites</button>
+      <button data-preset="top">Top 3</button>
+      <button data-preset="none">Clear</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Sources <span class="count" id="count"></span></h2>
+    <div class="grid" id="sites"></div>
+  </div>
+
+  <div class="card">
+    <h2>Install</h2>
+    <div class="row">
+      <button class="primary" id="build">Build install link</button>
+      <button id="open" class="hidden">Open manifest</button>
+    </div>
+    <div class="out hidden" id="out">
+      <code id="link"></code>
+      <div class="row" style="margin-top:10px">
+        <button id="copy">Copy link</button>
+        <span class="hint" id="copied"></span>
+      </div>
+    </div>
+    <div class="hint">
+      In Nuvio or Stremio: <b>Addons → Install from URL</b> → paste the link.
+      Changing your picks later gives a new link; the old install keeps its own set.
+    </div>
+  </div>
+</main>
+
+<footer>Only the rows you tick are exposed. Nothing is stored on the server.</footer>
+
+<script>
+const TOP3 = ["xhamster", "xvideos", "tnaflix"];
+let ALL = [];
+
+async function load() {
+  const r = await fetch("/sites.json");
+  ALL = await r.json();
+  const box = document.getElementById("sites");
+  box.innerHTML = "";
+  for (const s of ALL) {
+    const label = document.createElement("label");
+    label.className = "site";
+    label.innerHTML = `<input type="checkbox" value="${s.id}" checked> <span>${s.name}</span>`;
+    box.appendChild(label);
+  }
+  box.addEventListener("change", updateCount);
+  updateCount();
+}
+
+function boxes() { return [...document.querySelectorAll("#sites input")]; }
+function selected() { return boxes().filter(b => b.checked).map(b => b.value); }
+
+function updateCount() {
+  const n = selected().length;
+  document.getElementById("count").textContent = `${n} of ${boxes().length} selected`;
+  document.getElementById("build").disabled = n === 0;
+}
+
+document.querySelectorAll("[data-preset]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const p = btn.dataset.preset;
+    for (const b of boxes()) {
+      if (p === "all") b.checked = true;
+      else if (p === "none") b.checked = false;
+      else b.checked = TOP3.includes(b.value);
+    }
+    updateCount();
+  });
+});
+
+document.getElementById("build").addEventListener("click", async () => {
+  const sites = selected();
+  if (!sites.length) return;
+  const r = await fetch(`/api/link?sites=${encodeURIComponent(sites.join(","))}`);
+  if (!r.ok) { alert("Could not build the link."); return; }
+  const { url } = await r.json();
+  document.getElementById("link").textContent = url;
+  document.getElementById("out").classList.remove("hidden");
+  const openBtn = document.getElementById("open");
+  openBtn.classList.remove("hidden");
+  openBtn.onclick = () => window.open(url, "_blank");
+  document.getElementById("copied").textContent = "";
+});
+
+document.getElementById("copy").addEventListener("click", async () => {
+  const text = document.getElementById("link").textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    document.getElementById("copied").textContent = "copied";
+  } catch {
+    document.getElementById("copied").textContent = "select and copy manually";
+  }
+});
+
+load();
+</script>
+</body>
+</html>

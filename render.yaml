@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: tubehub-addon
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      # Optional:
+      # - key: PUBLIC_BASE_URL
+      #   value: https://your-domain
+      # - key: ALLOWED_EXTRA_HOSTS
+      #   value: cdn.example.com
