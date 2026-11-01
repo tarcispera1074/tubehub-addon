@@ -13,7 +13,14 @@ export const DEFAULT_ALLOWED_HOSTS = [
   // tnaflix
   "tnaflix.com",
   "tnaflix.net",
-  // perfectgirls
+  // justporn / ok.xxx / pornid / xgroovy / theyarehuge / handjobhub
+  "justporn.com",
+  "ok.xxx",
+  "pornid.xxx",
+  "xgroovy.com",
+  "theyarehuge.com",
+  "handjobhub.com",
+  "privatehost.com",  // perfectgirls
   "perfectgirls.net",
   "perfectgirls.xxx",
   // generic embed/CDN families seen on these sites

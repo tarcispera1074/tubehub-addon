@@ -44,7 +44,8 @@ function scrapeList(html, { linkPart, base, abs = true }) {
   const items = [];
   $("a[href]").each((_, el) => {
     const href = $(el).attr("href") || "";
-    if (!linkPart.test(href)) return;
+    const path = href.replace(/^https?:\/\/[^/]+/, "");
+    if (!linkPart.test(href) && !linkPart.test(path)) return;
     let url;
     try {
       url = new URL(href, base).href;
@@ -78,25 +79,56 @@ function scrapeList(html, { linkPart, base, abs = true }) {
   return dedupe(items);
 }
 
-/** Pick the best mp4 by quality hint in the filename. */
+/** Pick the best mp4: explicit quality wins, otherwise the first in the page. */
 function bestMp4(urls) {
-  const scored = urls
-    .filter((u) => !/trailer|preview|sample|thumb/i.test(u))
-    .map((u) => {
-      let score = 0;
-      const m = u.match(/(\d{3,4})p/);
-      if (m) score = Number(m[1]);
-      else if (/mp4_hd/i.test(u)) score = 720;
-      else if (/mp4_sd/i.test(u)) score = 480;
-      return { u, score };
-    });
-  scored.sort((a, b) => b.score - a.score);
-  return scored[0]?.u || null;
+  const clean = urls.filter((u) => !/trailer|preview|sample|thumb/i.test(u));
+  if (!clean.length) return null;
+  let best = null;
+  let bestScore = -1;
+  let bestIdx = Infinity;
+  clean.forEach((u, i) => {
+    const m = u.match(/(\d{3,4})p/);
+    const score = m
+      ? Number(m[1])
+      : /mp4_hd/i.test(u)
+        ? 720
+        : /mp4_sd/i.test(u)
+          ? 480
+          : 0;
+    if (score > bestScore || (score === bestScore && i < bestIdx)) {
+      best = u;
+      bestScore = score;
+      bestIdx = i;
+    }
+  });
+  return best;
 }
 
 function allMedia(html, ext) {
   const re = new RegExp(`https?:\\\\?\\/\\\\?\\/[^"'\\s\\\\]+\\.${ext}[^"'\\s\\\\]*`, "gi");
   return [...html.matchAll(re)].map((m) => m[0].replace(/\\\//g, "/"));
+}
+
+/**
+ * Shared resolver for the "get_file" CMS family: these sites put a plain
+ * mp4/m3u8 on the video page. Prefer HLS, else the best mp4.
+ */
+function resolveFromPage(html) {
+  const hls = allMedia(html, "m3u8").filter((u) => !/trailer|preview|sample/i.test(u));
+  if (hls.length) return { url: hls[0], type: "hls", quality: "auto" };
+  const mp4 = allMedia(html, "mp4");
+  const best = bestMp4(mp4);
+  if (best) {
+    const m = best.match(/(\d{3,4})p/);
+    return { url: best, type: "mp4", quality: m ? m[1] + "p" : "hd" };
+  }
+  return null;
+}
+
+/** Build a listing URL; null means "this site has no further pages". */
+function listingUrl(base, page, sub = "") {
+  if (page > 1) return null;
+  return `${base}${sub}`;
 }
 
 export const SITES = {
@@ -165,6 +197,119 @@ export const SITES = {
       if (!best) return null;
       const m = best.match(/(\d{3,4})p/);
       return { url: best, type: "mp4", quality: m ? m[1] + "p" : "hd" };
+    },
+  },
+
+  // --- "get_file" CMS family: plain mp4/m3u8 on the page --------------------
+  // Verified playable. Only the first listing page exists, so skip>0 ends the
+  // row instead of repeating page 1.
+  justporn: {
+    name: "JustPorn",
+    base: "https://justporn.com",
+    async list({ page = 1, query = "" }) {
+      const url = query
+        ? `https://justporn.com/search/${encodeURIComponent(query)}/`
+        : listingUrl("https://justporn.com", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /\/video[\/-]/i, base: "https://justporn.com" });
+    },
+    async resolve(videoUrl) {
+      const r = await getHtml(videoUrl, { referer: "https://justporn.com/" });
+      return r.ok ? resolveFromPage(r.html) : null;
+    },
+  },
+
+  handjobhub: {
+    name: "HandjobHub",
+    base: "https://handjobhub.com",
+    async list({ page = 1, query = "" }) {
+      const url = query
+        ? `https://handjobhub.com/search/${encodeURIComponent(query)}/`
+        : `https://handjobhub.com/?page=${page}`;
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /\/video[\/-]/i, base: "https://handjobhub.com" });
+    },
+    async resolve(videoUrl) {
+      const r = await getHtml(videoUrl, { referer: "https://handjobhub.com/" });
+      return r.ok ? resolveFromPage(r.html) : null;
+    },
+  },
+
+  okxxx: {
+    name: "OK.xxx",
+    base: "https://ok.xxx",
+    async list({ page = 1, query = "" }) {
+      const url = query
+        ? `https://ok.xxx/search/${encodeURIComponent(query)}/`
+        : listingUrl("https://ok.xxx", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /\/video[\/-]/i, base: "https://ok.xxx" });
+    },
+    async resolve(videoUrl) {
+      const r = await getHtml(videoUrl, { referer: "https://ok.xxx/" });
+      return r.ok ? resolveFromPage(r.html) : null;
+    },
+  },
+
+  xgroovy: {
+    name: "XGroovy",
+    base: "https://xgroovy.com",
+    async list({ page = 1, query = "" }) {
+      const url = query
+        ? `https://xgroovy.com/search/${encodeURIComponent(query)}/`
+        : listingUrl("https://xgroovy.com", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /^\/videos\/\d+/i, base: "https://xgroovy.com" });
+    },
+    async resolve(videoUrl) {
+      const r = await getHtml(videoUrl, { referer: "https://xgroovy.com/" });
+      return r.ok ? resolveFromPage(r.html) : null;
+    },
+  },
+
+  theyarehuge: {
+    name: "TheyAreHuge",
+    base: "https://www.theyarehuge.com",
+    async list({ page = 1, query = "" }) {
+      const url = query
+        ? `https://www.theyarehuge.com/search/${encodeURIComponent(query)}/`
+        : listingUrl("https://www.theyarehuge.com", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /^\/v\/[a-z0-9-]+/i, base: "https://www.theyarehuge.com" });
+    },
+    async resolve(videoUrl) {
+      const r = await getHtml(videoUrl, { referer: "https://www.theyarehuge.com/" });
+      return r.ok ? resolveFromPage(r.html) : null;
+    },
+  },
+
+  pornid: {
+    name: "PornID",
+    base: "https://www.pornid.xxx",
+    async list({ page = 1, query = "" }) {
+      const url = query
+        ? `https://www.pornid.xxx/search/${encodeURIComponent(query)}/`
+        : listingUrl("https://www.pornid.xxx", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, {
+        linkPart: /^\/[a-z0-9-]{15,}\.html$/i,
+        base: "https://www.pornid.xxx",
+      });
+    },
+    async resolve(videoUrl) {
+      const r = await getHtml(videoUrl, { referer: "https://www.pornid.xxx/" });
+      return r.ok ? resolveFromPage(r.html) : null;
     },
   },
 
