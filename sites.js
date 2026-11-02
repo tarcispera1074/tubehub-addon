@@ -417,6 +417,65 @@ export const SITES = {
     },
   },
 
+  // --- Aylo family: public legacy JSON API, no key ---------------------------
+  redtube: {
+    name: "RedTube (HD)",
+    base: "https://www.redtube.com",
+    async list({ page = 1, query = "" }) {
+      // api.redtube.com is public and keyless: it returns title, duration,
+      // page url and thumbnails. `ordering=newest` gives a browsable "latest".
+      const search = query || "all";
+      const url =
+        `https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json` +
+        `&search=${encodeURIComponent(search)}&page=${page}&thumbsize=big&ordering=newest`;
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      let j;
+      try {
+        j = JSON.parse(r.html);
+      } catch {
+        return [];
+      }
+      return (j.videos || [])
+        .map((v) => v.video)
+        .filter((v) => v && v.url && v.title)
+        .map((v) => ({ url: v.url, title: v.title, poster: v.default_thumb || v.thumb || "" }));
+    },
+    async resolve(videoUrl) {
+      const page = await getHtml(videoUrl);
+      if (!page.ok) return null;
+      // The page carries mediaDefinition, whose videoUrl points at /media/<fmt>?s=…
+      const m = page.html.match(/mediaDefinition:\s*(\[[\s\S]{0,3000}?\])/);
+      if (!m) return null;
+      let defs;
+      try {
+        defs = JSON.parse(m[1].replace(/\\\//g, "/"));
+      } catch {
+        return null;
+      }
+      for (const want of ["mp4", "hls"]) {
+        const def = defs.find((d) => d.format === want);
+        if (!def?.videoUrl) continue;
+        const u = def.videoUrl.startsWith("http") ? def.videoUrl : "https://www.redtube.com" + def.videoUrl;
+        const r = await getHtml(u);
+        if (!r.ok) continue;
+        let arr;
+        try {
+          arr = JSON.parse(r.html);
+        } catch {
+          continue;
+        }
+        const best = arr
+          .map((e) => ({ e, q: Number(e.quality || e.height || 0) }))
+          .sort((a, b) => b.q - a.q)[0];
+        const vu = (best?.e?.videoUrl || "").replace(/\\\//g, "/");
+        if (!vu) continue;
+        return { url: vu, type: want, quality: best.q ? best.q + "p" : "auto" };
+      }
+      return null;
+    },
+  },
+
   perfectgirls: {
     name: "PerfectGirls",
     base: "https://www.perfectgirls.net",
