@@ -167,9 +167,11 @@ async function resolveAylo(pageHtml, pageUrl) {
  * mp4/m3u8 on the video page. Prefer HLS, else the best mp4.
  */
 function resolveFromPage(html) {
-  const hls = allMedia(html, "m3u8").filter((u) => !/trailer|preview|sample/i.test(u));
+  // Some sites name thumbnails "<file>.mp4.jpg" — those are images, not media.
+  const notThumb = (u) => !/\.(?:jpg|jpeg|png|webp|gif|avif)(?:[?#]|$)/i.test(u);
+  const hls = allMedia(html, "m3u8").filter((u) => notThumb(u) && !/trailer|preview|sample/i.test(u));
   if (hls.length) return { url: hls[0], type: "hls", quality: "auto" };
-  const mp4 = allMedia(html, "mp4");
+  const mp4 = allMedia(html, "mp4").filter(notThumb);
   const best = bestMp4(mp4);
   if (best) {
     const m = best.match(/(\d{3,4})p/);
@@ -544,6 +546,24 @@ export const SITES = {
     },
     async resolve(videoUrl) {
       const r = await getHtml(videoUrl, { referer: "https://letsporn.com/" });
+      return r.ok ? resolveFromPage(r.html) : null;
+    },
+  },
+
+  porn300: {
+    name: "Porn300",
+    base: "https://www.porn300.com",
+    async list({ page = 1, query = "" }) {
+      const url = query
+        ? `https://www.porn300.com/search/?q=${encodeURIComponent(query)}`
+        : listingUrl("https://www.porn300.com", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /^\/video\/[a-z0-9-]+\//i, base: "https://www.porn300.com" });
+    },
+    async resolve(videoUrl) {
+      const r = await getHtml(videoUrl, { referer: "https://www.porn300.com/" });
       return r.ok ? resolveFromPage(r.html) : null;
     },
   },
