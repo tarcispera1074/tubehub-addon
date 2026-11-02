@@ -42,13 +42,13 @@ the earlier assumption that these needed Aylo partner keys was wrong.
 | PornDoe | Listing is JS-rendered |
 | Beeg | SPA — 7.9 KB shell, no API references |
 | XNXX | 53 KB page, zero video links |
-| PussySpace | "Video" URL returns HTML |
-| 3Movs | Returns a GIF |
+| 3Movs | Exposes `get_file/…/<id>.mp4/` but returns a **1×1 placeholder GIF** (200 `image/gif`) to non-browser requests; `_lq` variant 403s. Hotlink-protected — re-tested after the thumbnail fix |
+| PussySpace | The "video" URL returns an HTML page, not media |
+| Rat.xxx | Video page 404s from the server |
 | BustyBus | Signed HLS URL fails on refetch |
-| Rat.xxx | Media absent from player markup |
-| SexVid | Links found, no playable media |
-| VipWank | Links found, no playable media |
-| BigPorn | Links found, no playable media |
+| SexVid | No video links in the listing (JS) |
+| VipWank | No video links in the listing (JS) |
+| BigPorn | Only tag pages in the HTML (JS) |
 
 ## JavaScript listings — 15
 
