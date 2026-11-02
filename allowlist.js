@@ -13,7 +13,11 @@ export const DEFAULT_ALLOWED_HOSTS = [
   // tnaflix
   "tnaflix.com",
   "tnaflix.net",
-  // justporn / ok.xxx / pornid / xgroovy / theyarehuge / handjobhub
+  "zbporn.com",
+  "megatube.xxx",
+  "shameless.com",
+  "superporn.com",
+  "pornone.com",  // justporn / ok.xxx / pornid / xgroovy / theyarehuge / handjobhub
   "justporn.com",
   "ok.xxx",
   "pornid.xxx",

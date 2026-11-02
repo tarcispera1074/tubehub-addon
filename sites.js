@@ -64,16 +64,28 @@ function scrapeList(html, { linkPart, base, abs = true }) {
       img.attr("data-original") ||
       "";
 
-    const title =
-      ($(el).attr("title") || "").trim() ||
-      (img.attr("alt") || "").trim() ||
-      $(el).find("p, span, .title").first().text().trim() ||
-      decodeURIComponent(url.split("/").filter(Boolean).pop() || "")
-        .replace(/[-_]/g, " ")
-        .replace(/\.(?:html?|php)$/i, "")
-        .trim();
+    const UI_WORDS = /^(add to\b|add\b|like\b|share\b|favorite|favourite|watch later|download|play\b|hd\b|4k\b|new\b|hot\b)$/i;
+    let title = ($(el).attr("title") || "").trim() || (img.attr("alt") || "").trim() ||
+      $(el).find("p, span, .title, .video-title, .thumb-title").first().text().trim();
 
-    if (!url || !title) return;
+    // Fall back to the URL slug when the markup gives nothing useful.
+    if (!title || UI_WORDS.test(title)) {
+      let path = "";
+      try {
+        path = new URL(url).pathname;
+      } catch {}
+      const words = decodeURIComponent(path)
+        .split("/")
+        .filter(Boolean)
+        .filter((s) => !/^\d+$/.test(s));
+      title = (words[words.length - 1] || "").replace(/\.(?:html?|php)$/i, "").replace(/[-_]/g, " ").trim();
+    }
+    if (!title) {
+      const num = url.match(/\d{3,}/);
+      title = num ? `Video ${num[0]}` : "Video";
+    }
+
+    if (!url) return;
     items.push({ url, title: title.replace(/\s+/g, " ").slice(0, 120), poster });
   });
   return dedupe(items);
@@ -309,6 +321,98 @@ export const SITES = {
     },
     async resolve(videoUrl) {
       const r = await getHtml(videoUrl, { referer: "https://www.pornid.xxx/" });
+      return r.ok ? resolveFromPage(r.html) : null;
+    },
+  },
+
+  // --- verified full-length additions --------------------------------------
+  zbporn: {
+    name: "ZbPorn",
+    base: "https://zbporn.com",
+    async list({ page = 1, query = "" }) {
+      const url = query ? `https://zbporn.com/search/${encodeURIComponent(query)}/` : listingUrl("https://zbporn.com", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /^\/videos\/\d+/i, base: "https://zbporn.com" });
+    },
+    async resolve(videoUrl) {
+      const r = await getHtml(videoUrl, { referer: "https://zbporn.com/" });
+      return r.ok ? resolveFromPage(r.html) : null;
+    },
+  },
+
+  megatube: {
+    name: "MegaTube",
+    base: "https://megatube.xxx",
+    async list({ page = 1, query = "" }) {
+      const url = query
+        ? `https://megatube.xxx/search/${encodeURIComponent(query)}/`
+        : listingUrl("https://megatube.xxx", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /^\/videos\/\d+/i, base: "https://megatube.xxx" });
+    },
+    async resolve(videoUrl) {
+      const r = await getHtml(videoUrl, { referer: "https://megatube.xxx/" });
+      return r.ok ? resolveFromPage(r.html) : null;
+    },
+  },
+
+  shameless: {
+    name: "Shameless",
+    base: "https://shameless.com",
+    async list({ page = 1, query = "" }) {
+      const url = query
+        ? `https://shameless.com/search/${encodeURIComponent(query)}/`
+        : listingUrl("https://shameless.com", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /^\/videos\/[a-z0-9-]+/i, base: "https://shameless.com" });
+    },
+    async resolve(videoUrl) {
+      const r = await getHtml(videoUrl, { referer: "https://shameless.com/" });
+      return r.ok ? resolveFromPage(r.html) : null;
+    },
+  },
+
+  superporn: {
+    name: "SuperPorn",
+    base: "https://www.superporn.com",
+    async list({ page = 1, query = "" }) {
+      const url = query
+        ? `https://www.superporn.com/search/${encodeURIComponent(query)}/`
+        : listingUrl("https://www.superporn.com", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /^\/video\/[a-z0-9-]+/i, base: "https://www.superporn.com" });
+    },
+    async resolve(videoUrl) {
+      const r = await getHtml(videoUrl, { referer: "https://www.superporn.com/" });
+      return r.ok ? resolveFromPage(r.html) : null;
+    },
+  },
+
+  pornone: {
+    name: "PornOne",
+    base: "https://pornone.com",
+    async list({ page = 1, query = "" }) {
+      const url = query
+        ? `https://pornone.com/search/${encodeURIComponent(query)}/`
+        : listingUrl("https://pornone.com", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, {
+        linkPart: /^\/[a-z0-9-]+\/[a-z0-9-]{12,}/i,
+        base: "https://pornone.com",
+      });
+    },
+    async resolve(videoUrl) {
+      const r = await getHtml(videoUrl, { referer: "https://pornone.com/" });
       return r.ok ? resolveFromPage(r.html) : null;
     },
   },
