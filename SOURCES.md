@@ -1,15 +1,16 @@
 # Source tracker
 
-Status of every site from the original 58-site list (58 = 17 + 13 + 15 + 12 + 1).
+Status of every site from the original 58-site list (58 = 18 + 12 + 15 + 12 + 1).
 
 A site is `LIVE` only if it passed all four checks: catalog ≥ 8 real titles →
 video page resolves → media returns 200/206 `video/*`|`mpegurl` → the **proxied**
 URL works too.
 
-## LIVE — 17
+## LIVE — 18
 
 | Site | Host | How it resolves | Quality |
 |---|---|---|---|
+| PornHub | pornhub.com | /video/get_media with session cookies | 1080p |
 | xHamster | xhamster.com | page HLS | adaptive |
 | xVideos | xvideos.com | page HLS | up to 720p |
 | TnaFlix | tnaflix.com | page mp4 | mp4 |
@@ -32,11 +33,10 @@ RedTube/YouPorn/Tube8 share one resolver (`resolveAylo`): the page's
 `mediaDefinition` → `/media/mp4?s=…` → per-quality JSON. **No API key needed** —
 the earlier assumption that these needed Aylo partner keys was wrong.
 
-## Investigated and rejected — 13
+## Investigated and rejected — 12
 
 | Site | Finding |
 |---|---|
-| PornHub | Anonymous traffic receives a **12-second preview** playlist, not the video |
 | PerfectGirls | Only a 360p preview clip is public |
 | EPorner | Catalog API works, but `/xhr/video/…` returns `available:false, code:3` even with session cookies |
 | PornDoe | Listing is JS-rendered |

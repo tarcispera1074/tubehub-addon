@@ -27,12 +27,19 @@ export async function getHtml(url, { timeoutMs = 20000, referer } = {}) {
 }
 
 function dedupe(items) {
-  const seen = new Set();
-  return items.filter((i) => {
-    if (seen.has(i.url)) return false;
-    seen.add(i.url);
-    return true;
-  });
+  const map = new Map();
+  for (const i of items) {
+    if (!map.has(i.url)) {
+      map.set(i.url, i);
+    } else {
+      const existing = map.get(i.url);
+      if (!existing.poster && i.poster) existing.poster = i.poster;
+      if ((!existing.title || existing.title.startsWith("Video ")) && i.title && !i.title.startsWith("Video ")) {
+        existing.title = i.title;
+      }
+    }
+  }
+  return [...map.values()];
 }
 
 /**
@@ -62,6 +69,8 @@ function scrapeList(html, { linkPart, base, abs = true }) {
       img.attr("data-src") ||
       img.attr("data-lazy-src") ||
       img.attr("data-original") ||
+      img.attr("data-thumb_url") ||
+      img.attr("data-mediumthumb") ||
       "";
 
     const UI_WORDS = /^(add to\b|add\b|like\b|share\b|favorite|favourite|watch later|download|play\b|hd\b|4k\b|new\b|hot\b)$/i;
@@ -186,7 +195,104 @@ function listingUrl(base, page, sub = "") {
   return `${base}${sub}`;
 }
 
+/**
+ * Resolver for Pornhub: page carries `flashvars` with a `mediaDefinitions` array.
+ * Requesting the MP4 `videoUrl` (/video/get_media?s=...) with the session cookies
+ * returns an array of direct mp4 streams across multiple qualities.
+ */
+async function resolvePornhub(videoUrl) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const r = await fetch(videoUrl, {
+      signal: ctrl.signal,
+      redirect: "follow",
+      headers: {
+        "user-agent": UA,
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        referer: "https://www.pornhub.com/",
+      },
+    });
+    if (!r.ok) return null;
+
+    const cookies = r.headers.getSetCookie ? r.headers.getSetCookie() : [r.headers.get("set-cookie")].filter(Boolean);
+    const cookieStr = cookies.map((c) => c.split(";")[0]).join("; ");
+
+    const html = await r.text();
+    const flashvarsMatch = html.match(/flashvars_\d+\s*=\s*(\{[\s\S]*?\});\s*(?:var\s+player_mp4_seek|var\s+seek)/);
+    if (!flashvarsMatch) return null;
+
+    let fv;
+    try {
+      fv = JSON.parse(flashvarsMatch[1]);
+    } catch {
+      return null;
+    }
+
+    const defs = fv.mediaDefinitions || [];
+    const mp4Def = defs.find((d) => d.format === "mp4" && d.videoUrl);
+    if (!mp4Def) return null;
+
+    let getMediaUrl;
+    try {
+      getMediaUrl = new URL(mp4Def.videoUrl, "https://www.pornhub.com").href;
+    } catch {
+      return null;
+    }
+
+    const res = await fetch(getMediaUrl, {
+      signal: ctrl.signal,
+      headers: {
+        "user-agent": UA,
+        referer: videoUrl,
+        cookie: cookieStr,
+      },
+    });
+    if (!res.ok) return null;
+
+    let list;
+    try {
+      list = await res.json();
+    } catch {
+      return null;
+    }
+
+    if (!Array.isArray(list) || list.length === 0) return null;
+    const best = list
+      .filter((item) => item.videoUrl)
+      .sort((a, b) => (Number(b.quality || b.height) || 0) - (Number(a.quality || a.height) || 0))[0];
+
+    if (!best?.videoUrl) return null;
+    const q = Number(best.quality || best.height) || 0;
+    return {
+      url: best.videoUrl,
+      type: "mp4",
+      quality: q ? `${q}p` : "hd",
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export const SITES = {
+  pornhub: {
+    name: "Pornhub (HD)",
+    base: "https://www.pornhub.com",
+    async list({ page = 1, query = "" }) {
+      const url = query
+        ? `https://www.pornhub.com/video/search?search=${encodeURIComponent(query)}&page=${page}`
+        : `https://www.pornhub.com/video?page=${page}`;
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /view_video\.php\?viewkey=/i, base: "https://www.pornhub.com" });
+    },
+    async resolve(videoUrl) {
+      return resolvePornhub(videoUrl);
+    },
+  },
+
   xhamster: {
     name: "xHamster (HD)",
     base: "https://xhamster.com",

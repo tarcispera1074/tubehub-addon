@@ -4,6 +4,7 @@ One **browsable catalog per tube site**. Each site in `sites.js` becomes its own
 row in the app:
 
 ```
+TubeHub: Pornhub (HD) - Movies
 TubeHub: xHamster (HD) - Movies
 TubeHub: xVideos (HD) - Movies
 TubeHub: TnaFlix (HD) - Movies
@@ -32,6 +33,7 @@ every install link already in the wild.
 
 | Site | Catalog | Stream | Quality |
 |---|---|---|---|
+| Pornhub | ✅ | ✅ MP4 | up to 1080p |
 | xHamster | ✅ | ✅ HLS | adaptive |
 | xVideos | ✅ | ✅ HLS | up to 720p |
 | TnaFlix | ✅ | ✅ MP4 | 1080p |

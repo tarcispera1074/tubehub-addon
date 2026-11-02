@@ -2,6 +2,9 @@
 // two addons, with this addon's CDNs added).
 
 export const DEFAULT_ALLOWED_HOSTS = [
+  // pornhub
+  "pornhub.com",
+  "phncdn.com",
   // xhamster
   "xhcdn.com",
   "xhamster.com",

@@ -33,6 +33,7 @@ console.log("host policy");
 ok("loopback blocked", isSafePublicHost("127.0.0.1") === false);
 ok("v6 blocked", isSafePublicHost("[::1]") === false);
 ok("metadata blocked", isBlockedIPv4("169.254.169.254") === true);
+ok("pornhub cdn allowed", isHostAllowed("ev.phncdn.com") === true);
 ok("xhcdn allowed", isHostAllowed("video-nss.xhcdn.com") === true);
 ok("xvideos cdn allowed", isHostAllowed("mp4-cdn77.xvideos-cdn.com") === true);
 ok("tnaflix allowed", isHostAllowed("cdnl.tnaflix.com") === true);
