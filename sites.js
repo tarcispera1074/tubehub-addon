@@ -122,6 +122,47 @@ function allMedia(html, ext) {
 }
 
 /**
+ * Shared resolver for the Aylo family (RedTube, YouPorn): the page carries a
+ * `mediaDefinition` array whose videoUrl points at `/media/<fmt>?s=…`, and that
+ * endpoint returns JSON with one entry per quality.
+ */
+async function resolveAylo(pageHtml, pageUrl) {
+  const m = pageHtml.match(/mediaDefinition:\s*(\[[\s\S]{0,4000}?\])/);
+  if (!m) return null;
+  let defs;
+  try {
+    defs = JSON.parse(m[1].replace(/\\\//g, "/"));
+  } catch {
+    return null;
+  }
+  for (const want of ["mp4", "hls"]) {
+    const def = defs.find((d) => d.format === want);
+    if (!def?.videoUrl) continue;
+    let abs;
+    try {
+      abs = new URL(def.videoUrl, pageUrl).href;
+    } catch {
+      continue;
+    }
+    const r = await getHtml(abs);
+    if (!r.ok) continue;
+    let arr;
+    try {
+      arr = JSON.parse(r.html);
+    } catch {
+      continue;
+    }
+    const best = arr
+      .map((e) => ({ e, q: Number(e.quality || e.height || 0) }))
+      .sort((a, b) => b.q - a.q)[0];
+    const vu = (best?.e?.videoUrl || "").replace(/\\\//g, "/");
+    if (!vu) continue;
+    return { url: vu, type: want, quality: best.q ? best.q + "p" : "auto" };
+  }
+  return null;
+}
+
+/**
  * Shared resolver for the "get_file" CMS family: these sites put a plain
  * mp4/m3u8 on the video page. Prefer HLS, else the best mp4.
  */
@@ -444,35 +485,27 @@ export const SITES = {
     async resolve(videoUrl) {
       const page = await getHtml(videoUrl);
       if (!page.ok) return null;
-      // The page carries mediaDefinition, whose videoUrl points at /media/<fmt>?s=…
-      const m = page.html.match(/mediaDefinition:\s*(\[[\s\S]{0,3000}?\])/);
-      if (!m) return null;
-      let defs;
-      try {
-        defs = JSON.parse(m[1].replace(/\\\//g, "/"));
-      } catch {
-        return null;
-      }
-      for (const want of ["mp4", "hls"]) {
-        const def = defs.find((d) => d.format === want);
-        if (!def?.videoUrl) continue;
-        const u = def.videoUrl.startsWith("http") ? def.videoUrl : "https://www.redtube.com" + def.videoUrl;
-        const r = await getHtml(u);
-        if (!r.ok) continue;
-        let arr;
-        try {
-          arr = JSON.parse(r.html);
-        } catch {
-          continue;
-        }
-        const best = arr
-          .map((e) => ({ e, q: Number(e.quality || e.height || 0) }))
-          .sort((a, b) => b.q - a.q)[0];
-        const vu = (best?.e?.videoUrl || "").replace(/\\\//g, "/");
-        if (!vu) continue;
-        return { url: vu, type: want, quality: best.q ? best.q + "p" : "auto" };
-      }
-      return null;
+      return resolveAylo(page.html, videoUrl);
+    },
+  },
+
+  youporn: {
+    name: "YouPorn (HD)",
+    base: "https://www.youporn.com",
+    async list({ page = 1, query = "" }) {
+      // The listing page embeds /watch/<id>/ links in its initial state.
+      const url = query
+        ? `https://www.youporn.com/?search=${encodeURIComponent(query)}`
+        : listingUrl("https://www.youporn.com", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /^\/watch\/\d+/i, base: "https://www.youporn.com" });
+    },
+    async resolve(videoUrl) {
+      const page = await getHtml(videoUrl);
+      if (!page.ok) return null;
+      return resolveAylo(page.html, videoUrl);
     },
   },
 
