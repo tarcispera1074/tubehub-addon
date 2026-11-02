@@ -509,6 +509,26 @@ export const SITES = {
     },
   },
 
+  tube8: {
+    name: "Tube8 (HD)",
+    base: "https://www.tube8.com",
+    async list({ page = 1, query = "" }) {
+      // Video pages live at /porn-video/<id>/ and the listing links straight to them.
+      const url = query
+        ? `https://www.tube8.com/search/?q=${encodeURIComponent(query)}`
+        : listingUrl("https://www.tube8.com", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /^\/porn-video\/\d+/i, base: "https://www.tube8.com" });
+    },
+    async resolve(videoUrl) {
+      const page = await getHtml(videoUrl);
+      if (!page.ok) return null;
+      return resolveAylo(page.html, videoUrl);
+    },
+  },
+
   perfectgirls: {
     name: "PerfectGirls",
     base: "https://www.perfectgirls.net",
