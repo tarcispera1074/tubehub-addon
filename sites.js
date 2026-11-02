@@ -529,6 +529,25 @@ export const SITES = {
     },
   },
 
+  letsporn: {
+    name: "LetsPorn",
+    base: "https://letsporn.com",
+    async list({ page = 1, query = "" }) {
+      // Video pages are /<slug>-<id> with no path prefix.
+      const url = query
+        ? `https://letsporn.com/search/${encodeURIComponent(query)}/`
+        : listingUrl("https://letsporn.com", page, "/");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /^\/[a-z0-9-]{10,}-\d{3,}$/i, base: "https://letsporn.com" });
+    },
+    async resolve(videoUrl) {
+      const r = await getHtml(videoUrl, { referer: "https://letsporn.com/" });
+      return r.ok ? resolveFromPage(r.html) : null;
+    },
+  },
+
   perfectgirls: {
     name: "PerfectGirls",
     base: "https://www.perfectgirls.net",
