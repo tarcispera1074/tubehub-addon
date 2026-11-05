@@ -26,6 +26,16 @@ export async function getHtml(url, { timeoutMs = 20000, referer } = {}) {
   }
 }
 
+// Titles that are UI noise or quality badges, not real video titles.
+const JUNK_TITLE = /^(add to\b|add\b|like\b|share\b|favorite|favourite|watch later|download|play\b|hd\b|4k\b|new\b|hot\b|\d{3,4}p(?:cc)?|hd\+?|hd video|sd video|full hd|ultra hd|4k ultra hd|video)$/i;
+
+// Poster src values that are known blank/badge placeholders (not data: URLs).
+const BLANK_SRC = /lightbox[-_]blank|\/hd\.svg|\/sd\.svg|\/badge|placeholder|loading[-_]gif|1x1\.|spacer\./i;
+
+function isJunkTitle(t) {
+  return !t || JUNK_TITLE.test(t.trim());
+}
+
 function dedupe(items) {
   const map = new Map();
   for (const i of items) {
@@ -33,8 +43,10 @@ function dedupe(items) {
       map.set(i.url, i);
     } else {
       const existing = map.get(i.url);
+      // Prefer any real poster over a blank/missing one.
       if (!existing.poster && i.poster) existing.poster = i.poster;
-      if ((!existing.title || existing.title.startsWith("Video ")) && i.title && !i.title.startsWith("Video ")) {
+      // Prefer a real title over a junk/fallback one.
+      if (isJunkTitle(existing.title) && !isJunkTitle(i.title)) {
         existing.title = i.title;
       }
     }
@@ -62,28 +74,40 @@ function scrapeList(html, { linkPart, base, abs = true }) {
     if (!url.startsWith("http")) return;
 
     const img = $(el).find("img").first();
+
+    // Pick the best poster: skip blank placeholders and known badge icons.
+    const rawSrc = img.attr("src") || "";
     const poster =
-      (img.attr("src") && !img.attr("src").startsWith("data:")
-        ? img.attr("src")
+      (rawSrc && !rawSrc.startsWith("data:") && !BLANK_SRC.test(rawSrc)
+        ? rawSrc
         : "") ||
       img.attr("data-src") ||
       img.attr("data-lazy-src") ||
       img.attr("data-original") ||
+      img.attr("data-mzl") ||
       img.attr("data-thumb_url") ||
       img.attr("data-mediumthumb") ||
+      img.attr("data-xsrc") ||
       "";
 
-    const UI_WORDS = /^(add to\b|add\b|like\b|share\b|favorite|favourite|watch later|download|play\b|hd\b|4k\b|new\b|hot\b)$/i;
-    let title = ($(el).attr("title") || "").trim() || (img.attr("alt") || "").trim() ||
-      $(el).find("p, span, .title, .video-title, .thumb-title").first().text().trim();
+    // Title: prefer explicit title attributes before falling back to child text.
+    // Check anchor title → img alt → img title → specific class children →
+    // then paragraph/span children (last resort, may carry quality badges).
+    let title =
+      ($(el).attr("title") || "").trim() ||
+      (img.attr("alt") || "").trim() ||
+      (img.attr("title") || "").trim() ||
+      $(el).find(".title, .video-title, .thumb-title, [class*='title']").first().text().trim() ||
+      $(el).find("p").first().text().trim() ||
+      $(el).find("span:not([class*='hd']):not([class*='mark']):not([class*='tag']):not([class*='badge'])").first().text().trim();
 
     // Fall back to the URL slug when the markup gives nothing useful.
-    if (!title || UI_WORDS.test(title)) {
-      let path = "";
+    if (isJunkTitle(title)) {
+      let p = "";
       try {
-        path = new URL(url).pathname;
+        p = new URL(url).pathname;
       } catch {}
-      const words = decodeURIComponent(path)
+      const words = decodeURIComponent(p)
         .split("/")
         .filter(Boolean)
         .filter((s) => !/^\d+$/.test(s));
@@ -609,10 +633,36 @@ export const SITES = {
       if (!url) return [];
       const r = await getHtml(url);
       if (!r.ok) return [];
-      return scrapeList(r.html, {
-        linkPart: /^\/[a-z0-9-]+\/[a-z0-9-]{12,}/i,
-        base: "https://pornone.com",
+      // PornOne puts the thumbnail <img> and title <div> OUTSIDE the <a> element,
+      // so scrapeList() cannot reach them. Walk the card structure directly instead.
+      const $ = load(r.html);
+      const items = [];
+      // Each card: <a class="videocard"> wraps controls; the real img and title are siblings.
+      $("a.videocard, a.linkage").each((_, el) => {
+        const href = $(el).attr("href") || "";
+        let cardUrl;
+        try {
+          cardUrl = new URL(href, "https://pornone.com").href;
+        } catch {
+          return;
+        }
+        if (!cardUrl.startsWith("http")) return;
+        // The thumbnail img is typically a sibling (or close ancestor's child).
+        const card = $(el).closest("div, article, li");
+        const img = card.find("img.imgvideo, img.thumbimg, img[data-path]").first();
+        const poster = img.attr("src") || img.attr("data-src") || "";
+        const title =
+          card.find(".videotitle, .video-title, .title").first().text().trim() ||
+          img.attr("alt") || "";
+        if (!isJunkTitle(title) || poster) {
+          items.push({
+            url: cardUrl,
+            title: (isJunkTitle(title) ? "" : title).replace(/\s+/g, " ").slice(0, 120),
+            poster,
+          });
+        }
       });
+      return dedupe(items.filter((i) => i.url));
     },
     async resolve(videoUrl) {
       const r = await getHtml(videoUrl, { referer: "https://pornone.com/" });
