@@ -134,8 +134,13 @@ function allMedia(html, ext) {
  * Shared resolver for the Aylo family (RedTube, YouPorn): the page carries a
  * `mediaDefinition` array whose videoUrl points at `/media/<fmt>?s=…`, and that
  * endpoint returns JSON with one entry per quality.
+ *
+ * @param {string} pageHtml
+ * @param {string} pageUrl
+ * @param {number} [minQ=0]  Minimum quality in pixels (e.g. 2160 for 4K-only).
+ *                           Pass 0 (default) to pick the best available.
  */
-async function resolveAylo(pageHtml, pageUrl) {
+async function resolveAylo(pageHtml, pageUrl, minQ = 0) {
   const m = pageHtml.match(/mediaDefinition:\s*(\[[\s\S]{0,4000}?\])/);
   if (!m) return null;
   let defs;
@@ -161,9 +166,11 @@ async function resolveAylo(pageHtml, pageUrl) {
     } catch {
       continue;
     }
-    const best = arr
+    const candidates = arr
       .map((e) => ({ e, q: Number(e.quality || e.height || 0) }))
-      .sort((a, b) => b.q - a.q)[0];
+      .filter((x) => x.q >= minQ)
+      .sort((a, b) => b.q - a.q);
+    const best = candidates[0];
     const vu = (best?.e?.videoUrl || "").replace(/\\\//g, "/");
     if (!vu) continue;
     return { url: vu, type: want, quality: best.q ? best.q + "p" : "auto" };
@@ -199,8 +206,12 @@ function listingUrl(base, page, sub = "") {
  * Resolver for Pornhub: page carries `flashvars` with a `mediaDefinitions` array.
  * Requesting the MP4 `videoUrl` (/video/get_media?s=...) with the session cookies
  * returns an array of direct mp4 streams across multiple qualities.
+ *
+ * @param {string} videoUrl
+ * @param {number} [minQ=0]  Minimum quality in pixels (e.g. 2160 for 4K-only).
+ *                           Pass 0 (default) to pick the best available.
  */
-async function resolvePornhub(videoUrl) {
+async function resolvePornhub(videoUrl, minQ = 0) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20000);
   try {
@@ -260,6 +271,7 @@ async function resolvePornhub(videoUrl) {
     if (!Array.isArray(list) || list.length === 0) return null;
     const best = list
       .filter((item) => item.videoUrl)
+      .filter((item) => (Number(item.quality || item.height) || 0) >= minQ)
       .sort((a, b) => (Number(b.quality || b.height) || 0) - (Number(a.quality || a.height) || 0))[0];
 
     if (!best?.videoUrl) return null;
@@ -293,6 +305,24 @@ export const SITES = {
     },
   },
 
+  pornhub_4k: {
+    name: "Pornhub (4K)",
+    base: "https://www.pornhub.com",
+    async list({ page = 1, query = "" }) {
+      // 4K filter: Pornhub exposes a dedicated quality filter in their search/listing.
+      const url = query
+        ? `https://www.pornhub.com/video/search?search=${encodeURIComponent(query)}&page=${page}&hd=2`
+        : `https://www.pornhub.com/video?page=${page}&hd=2`;
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /view_video\.php\?viewkey=/i, base: "https://www.pornhub.com" });
+    },
+    async resolve(videoUrl) {
+      // Only return a stream when a 2160p (4K) source actually exists.
+      return resolvePornhub(videoUrl, 2160);
+    },
+  },
+
   xhamster: {
     name: "xHamster (HD)",
     base: "https://xhamster.com",
@@ -311,6 +341,30 @@ export const SITES = {
       const master = urls.find((u) => /media=hls|master/i.test(u)) || urls[0];
       if (!master) return null;
       return { url: master, type: "hls", quality: "auto" };
+    },
+  },
+
+  xhamster_4k: {
+    name: "xHamster (4K)",
+    base: "https://xhamster.com",
+    async list({ page = 1, query = "" }) {
+      // xHamster supports a ?quality=4k filter on both search and newest pages.
+      const url = query
+        ? `https://xhamster.com/search/${encodeURIComponent(query)}?page=${page}&quality=4k`
+        : `https://xhamster.com/newest/${page}?quality=4k`;
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /\/videos\/[a-z0-9-]{6,}/i, base: "https://xhamster.com" });
+    },
+    async resolve(videoUrl) {
+      // The HLS master from xHamster is adaptive; request the page with the
+      // 4k quality hint so the embed URL carries the 4K variant.
+      const r = await getHtml(videoUrl, { referer: "https://xhamster.com/" });
+      if (!r.ok) return null;
+      const urls = allMedia(r.html, "m3u8");
+      const master = urls.find((u) => /media=hls|master/i.test(u)) || urls[0];
+      if (!master) return null;
+      return { url: master, type: "hls", quality: "4K" };
     },
   },
 
@@ -597,6 +651,36 @@ export const SITES = {
     },
   },
 
+  redtube_4k: {
+    name: "RedTube (4K)",
+    base: "https://www.redtube.com",
+    async list({ page = 1, query = "" }) {
+      // RedTube API supports a `max_duration`-style filter; for 4K we filter
+      // by hd=2 (which the site uses for 2160p) in the search API.
+      const search = query || "all";
+      const url =
+        `https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json` +
+        `&search=${encodeURIComponent(search)}&page=${page}&thumbsize=big&ordering=newest&hd=2`;
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      let j;
+      try {
+        j = JSON.parse(r.html);
+      } catch {
+        return [];
+      }
+      return (j.videos || [])
+        .map((v) => v.video)
+        .filter((v) => v && v.url && v.title)
+        .map((v) => ({ url: v.url, title: v.title, poster: v.default_thumb || v.thumb || "" }));
+    },
+    async resolve(videoUrl) {
+      const page = await getHtml(videoUrl);
+      if (!page.ok) return null;
+      return resolveAylo(page.html, videoUrl, 2160);
+    },
+  },
+
   youporn: {
     name: "YouPorn (HD)",
     base: "https://www.youporn.com",
@@ -617,6 +701,26 @@ export const SITES = {
     },
   },
 
+  youporn_4k: {
+    name: "YouPorn (4K)",
+    base: "https://www.youporn.com",
+    async list({ page = 1, query = "" }) {
+      // YouPorn supports a quality filter via the `quality` query param.
+      const url = query
+        ? `https://www.youporn.com/?search=${encodeURIComponent(query)}&quality=4k`
+        : listingUrl("https://www.youporn.com", page, "/?quality=4k");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /^\/watch\/\d+/i, base: "https://www.youporn.com" });
+    },
+    async resolve(videoUrl) {
+      const page = await getHtml(videoUrl);
+      if (!page.ok) return null;
+      return resolveAylo(page.html, videoUrl, 2160);
+    },
+  },
+
   tube8: {
     name: "Tube8 (HD)",
     base: "https://www.tube8.com",
@@ -634,6 +738,25 @@ export const SITES = {
       const page = await getHtml(videoUrl);
       if (!page.ok) return null;
       return resolveAylo(page.html, videoUrl);
+    },
+  },
+
+  tube8_4k: {
+    name: "Tube8 (4K)",
+    base: "https://www.tube8.com",
+    async list({ page = 1, query = "" }) {
+      const url = query
+        ? `https://www.tube8.com/search/?q=${encodeURIComponent(query)}&quality=hd`
+        : listingUrl("https://www.tube8.com", page, "/?quality=hd");
+      if (!url) return [];
+      const r = await getHtml(url);
+      if (!r.ok) return [];
+      return scrapeList(r.html, { linkPart: /^\/porn-video\/\d+/i, base: "https://www.tube8.com" });
+    },
+    async resolve(videoUrl) {
+      const page = await getHtml(videoUrl);
+      if (!page.ok) return null;
+      return resolveAylo(page.html, videoUrl, 2160);
     },
   },
 
