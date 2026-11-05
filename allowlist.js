@@ -13,6 +13,9 @@ export const DEFAULT_ALLOWED_HOSTS = [
   "xvideos-cdn.com",
   "xvideos.com",
   "xvideos.es",
+  // redtube
+  "redtube.com",
+  "rdtcdn.com",
   // tnaflix
   "tnaflix.com",
   "tnaflix.net",

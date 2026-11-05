@@ -633,12 +633,9 @@ export const SITES = {
       if (!url) return [];
       const r = await getHtml(url);
       if (!r.ok) return [];
-      // PornOne puts the thumbnail <img> and title <div> OUTSIDE the <a> element,
-      // so scrapeList() cannot reach them. Walk the card structure directly instead.
       const $ = load(r.html);
       const items = [];
-      // Each card: <a class="videocard"> wraps controls; the real img and title are siblings.
-      $("a.videocard, a.linkage").each((_, el) => {
+      $("a.videocard").each((_, el) => {
         const href = $(el).attr("href") || "";
         let cardUrl;
         try {
@@ -647,13 +644,11 @@ export const SITES = {
           return;
         }
         if (!cardUrl.startsWith("http")) return;
-        // The thumbnail img is typically a sibling (or close ancestor's child).
-        const card = $(el).closest("div, article, li");
-        const img = card.find("img.imgvideo, img.thumbimg, img[data-path]").first();
-        const poster = img.attr("src") || img.attr("data-src") || "";
         const title =
-          card.find(".videotitle, .video-title, .title").first().text().trim() ||
-          img.attr("alt") || "";
+          $(el).find(".videotitle, .video-title").first().text().trim() ||
+          $(el).attr("title") || "";
+        const img = $(el).find("img.imgvideo, img.thumbimg").first();
+        const poster = img.attr("src") || img.attr("data-src") || "";
         if (!isJunkTitle(title) || poster) {
           items.push({
             url: cardUrl,
@@ -670,29 +665,36 @@ export const SITES = {
     },
   },
 
-  // --- Aylo family: public legacy JSON API, no key ---------------------------
+  // --- Aylo family: public web scraping + shared Aylo resolver ---------------
   redtube: {
     name: "RedTube (HD)",
     base: "https://www.redtube.com",
     async list({ page = 1, query = "" }) {
-      // api.redtube.com is public and keyless: it returns title, duration,
-      // page url and thumbnails. `ordering=newest` gives a browsable "latest".
-      const search = query || "all";
-      const url =
-        `https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json` +
-        `&search=${encodeURIComponent(search)}&page=${page}&thumbsize=big&ordering=newest`;
+      const url = query
+        ? `https://www.redtube.com/?search=${encodeURIComponent(query)}&page=${page}`
+        : `https://www.redtube.com/?page=${page}`;
       const r = await getHtml(url);
       if (!r.ok) return [];
-      let j;
-      try {
-        j = JSON.parse(r.html);
-      } catch {
-        return [];
-      }
-      return (j.videos || [])
-        .map((v) => v.video)
-        .filter((v) => v && v.url && v.title)
-        .map((v) => ({ url: v.url, title: v.title, poster: v.default_thumb || v.thumb || "" }));
+      const $ = load(r.html);
+      const items = [];
+      $("a[href]").each((_, el) => {
+        const href = $(el).attr("href") || "";
+        if (!/^\/\d+$/i.test(href)) return;
+        const img = $(el).find("img").first();
+        const source = $(el).find("source").first();
+        const poster =
+          img.attr("data-thumb_url") ||
+          img.attr("data-src") ||
+          img.attr("data-o_thumb") ||
+          source.attr("data-srcset")?.split(" ")[0] ||
+          img.attr("src") ||
+          "";
+        const title = img.attr("alt") || $(el).attr("title") || "";
+        if (title && !poster.includes("lightbox-blank")) {
+          items.push({ url: "https://www.redtube.com" + href, title, poster });
+        }
+      });
+      return dedupe(items);
     },
     async resolve(videoUrl) {
       const page = await getHtml(videoUrl);
@@ -705,24 +707,31 @@ export const SITES = {
     name: "RedTube (4K)",
     base: "https://www.redtube.com",
     async list({ page = 1, query = "" }) {
-      // RedTube API supports a `max_duration`-style filter; for 4K we filter
-      // by hd=2 (which the site uses for 2160p) in the search API.
-      const search = query || "all";
-      const url =
-        `https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json` +
-        `&search=${encodeURIComponent(search)}&page=${page}&thumbsize=big&ordering=newest&hd=2`;
+      const url = query
+        ? `https://www.redtube.com/?search=${encodeURIComponent(query)}&page=${page}`
+        : `https://www.redtube.com/?page=${page}`;
       const r = await getHtml(url);
       if (!r.ok) return [];
-      let j;
-      try {
-        j = JSON.parse(r.html);
-      } catch {
-        return [];
-      }
-      return (j.videos || [])
-        .map((v) => v.video)
-        .filter((v) => v && v.url && v.title)
-        .map((v) => ({ url: v.url, title: v.title, poster: v.default_thumb || v.thumb || "" }));
+      const $ = load(r.html);
+      const items = [];
+      $("a[href]").each((_, el) => {
+        const href = $(el).attr("href") || "";
+        if (!/^\/\d+$/i.test(href)) return;
+        const img = $(el).find("img").first();
+        const source = $(el).find("source").first();
+        const poster =
+          img.attr("data-thumb_url") ||
+          img.attr("data-src") ||
+          img.attr("data-o_thumb") ||
+          source.attr("data-srcset")?.split(" ")[0] ||
+          img.attr("src") ||
+          "";
+        const title = img.attr("alt") || $(el).attr("title") || "";
+        if (title && !poster.includes("lightbox-blank")) {
+          items.push({ url: "https://www.redtube.com" + href, title, poster });
+        }
+      });
+      return dedupe(items);
     },
     async resolve(videoUrl) {
       const page = await getHtml(videoUrl);
